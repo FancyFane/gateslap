@@ -8,6 +8,8 @@ setup(
     install_requires=[
         'PyMySQL','DBUtils'
     ],
+    description = ("A utility designed to generate traffic for VTGate."),
+    keywords = "mysql vtgate vitess traffic SQL",
     entry_points='''
         [console_scripts]
         gateslap=gateslap.gateslap:start
