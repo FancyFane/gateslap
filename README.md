@@ -1,8 +1,34 @@
 # gateslap
-Utility for generating traffic for VTGate
+Utility for generating traffic for VTGate.
+
+Written as a python package, which will allow for more flexibility as
+the program develops. The goal is to create a quick command that you can run
+to start sending persistent and non-persistent MySQL connections.
+
+## Install
+
+```
+git clone https://github.com/FancyFane/gateslap.git
+cd gateslap
+python setup.py install
+```
+
+## Usage
+Currently this is designed to be ran with a `slapper.ini` in the current
+directory, you can also provide the ini file as an argument on the command line.
+```
+gateslap
+gateslap /path/to/slapper.ini
+```
+
+## TODO
+* Allow for custom SQL files and tables
+* Develop test files
+* Expand sanity check when running
+
 
 ## Work In Progress
-This utility is still a work in progres, if you are to install do so in a virtual environment. 
+This utility is still a work in progres, if you are to install do so in a virtual environment.
 
 ```
 git clone https://github.com/FancyFane/gateslap.git
@@ -13,14 +39,9 @@ virtual venv
 ```
 
 The reset.sh script is a helper script to quickly clear things out and re-install the local copy
-while development work continues. Once it runs you should be able to run the command anywhere while 
-in the virtual environment. 
+while development work continues. Once it runs you should be able to run the command anywhere while
+in the virtual environment.
 
 ```
 gateslap
 ````
-
-## TODO
-* Generate test SQL using mysqlslap
-* Create threads to generate traffic
-* Create Sanity Checks
