@@ -7,6 +7,8 @@ class Database(object):
 # need these basic connection details. As such we will make a Database super
 # class to hold this info and define it once.
 
+# TODO add in SSL support here
+
     def __init__(self, mysql_config):
         self.host = mysql_config['host']
         self.user = mysql_config['user']
@@ -16,31 +18,33 @@ class Database(object):
         self.charset = mysql_config['charset']
         self.autocommit = mysql_config['autocommit']
 
-    def fetch(self, sql):
-        self.__connect__()
-        self.cur.execute(sql)
-        result = self.cur.fetchall()
-        self.__disconnect__()
-        return result
 
-    def execute(self, sql):
-        self.__connect__()
-        self.cur.execute(sql)
-        self.__disconnect__()
-
-    def __disconnect__(self):
-        self.cur.close()
-        self.con.close()
-
-    def __connect__(self):
-        self.con = pymysql.connect(host=self.host, user=self.user, password=self.password,
-                                   db=self.db, port=self.port, cursorclass=pymysql.cursors.
-                                   DictCursor)
-        self.cur = self.con.cursor()
 
 # Creating easy human readable object name to use in code
 class QueryOneOff(Database):
-    pass
+
+        def fetch(self, sql):
+            self.connect()
+            self.cur.execute(sql)
+            result = self.cur.fetchall()
+            self.disconnect()
+            return result
+
+        def execute(self, sql):
+            self.connect()
+            self.cur.execute(sql)
+            self.disconnect()
+
+        def disconnect(self):
+            self.cur.close()
+            self.con.close()
+
+        def connect(self):
+            self.con = pymysql.connect(host=self.host, user=self.user, password=self.password,
+                                       db=self.db, port=self.port, cursorclass=pymysql.cursors.
+                                       DictCursor)
+            self.cur = self.con.cursor()
+
 
 # Using dbutils - PooledDB for persistent maxconnections
 # PooledDB module selected from DBUtils as it has more flexibility on how
@@ -69,7 +73,18 @@ class QueryPersist(Database):
         			password=self.password,database=self.db,charset=self.charset
         		)
 
-    # Override the way we connect
-    def __connect__(self):
-        self.con = self.pool.connection()
-        self.cur = self.con.cursor()
+    def execute(self, sql):
+        db = self.pool.connection()
+        cursor = db.cursor()
+        result = cursor.execute(sql)
+        db.commit()
+        db.close()
+        return result
+
+    def fetch(self, sql):
+        db = self.pool.connection()
+        cursor = db.cursor()
+        result = cursor.execute(sql)
+        result = cursor.fetchall()
+        db.close()
+        return result

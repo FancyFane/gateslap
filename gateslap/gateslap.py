@@ -1,28 +1,27 @@
 #!/usr/bin/python3
 
 from gateslap.myconnutils import QueryOneOff, QueryPersist
-from gateslap.slappers import OneSlapper, PersistentSlapper
+from gateslap.slappers import Slapper
 from gateslap import *
 from  gateslap.helpers import *
 import sys, signal, time
 
 
 
-
-# # TODO:   Add in SSL support
-#           Allow for Custom SQL/Tables
+# # TODO:   Add in SSL support for MySQL connection
+#           Allow for Custom SQL files and Tables
 #           Expand on sanity check CPU/Memory limits
-#           Create Unit Test
+#           Create Unit Test files
 
 background_processes = []
+
 
 def start():
     sanity_check()
     create_table()
     sql_files=generate_sql()
     slap_vtgate(sql_files)
-    for line in range(int(len(background_threads))):
-        print("\n")
+
 
 def sigint_handler(signal, frame):
     for line in range(int(len(background_threads))):
@@ -43,23 +42,19 @@ signal.signal(signal.SIGINT, sigint_handler)
 
 
 def slap_vtgate(sql_files):
-
-    def create_thread(slap_type):
-        for idx, file in enumerate(sql_files[slap_type]):
-            slapper_name=slap_type + str(idx+1)
-            if slap_type == 'persistent':
-                exec(slapper_name + " = PersistentSlapper('" + file + "')")
-            elif slap_type == 'oneoff':
-                exec(slapper_name + " = OneSlapper('" + file + "')")
+    for key, files in sql_files.items():
+        for idx, file in enumerate(files):
+            slapper_name=key + str(idx + 1)
+            if key == 'persistent':
+                exec(slapper_name + " = Slapper('" + file + "', 'persistent')")
+            elif key == 'oneoff':
+                exec(slapper_name + " = Slapper('" + file + "', 'oneoff')")
 
             exec(slapper_name + ".start('" + slapper_name + "')")
             exec("background_processes.append(" + slapper_name + ")")
 
-    create_thread('persistent')
-    create_thread('oneoff')
-
     for t in background_threads:
-         t.join()
+        t.join()
 
 
 def generate_sql():
@@ -75,12 +70,13 @@ def generate_sql():
         error=run[1].decode("utf-8")
         if error != "":
             print("An error has occured while generating synthetic SQL:\n\n" + \
-            error + "\n\nCheck '[mysqlslap]' and '[slappers]' " + \
+            error + "\n\nCheck '[mysqlslap]' and '[gateslap]' " + \
             "configurations in " + CONFIGFILE + ". Also, make sure " +\
             "you have mysqlslap binaries installed.\n\n")
             sys.exit(1)
 
     tmp_dir=gateslap_config['tmp_dir']
+
 
     mysqlslap="mysqlslap " + \
     "--create-schema=" + mysql_config['database'] + \
@@ -128,17 +124,17 @@ def create_table():
         sys.exit(1)
     mysql=QueryOneOff(mysql_config)
 
-    # TODO: If custom SQL provided override 'create_sql' here
+    # TODO: If custom SQL provided override 'create_table_sql' here
 
-    create_sql=generate_create_sql[2].decode("utf-8")
+    create_table_sql=generate_create_sql[2].decode("utf-8")
     try:
-        mysql.execute(create_sql)
+        mysql.execute(create_table_sql)
     # Error occurs if table already exisit
     except Exception as error:
         if gateslap_config['drop_table']:
             # TODO work with custom tables in the future t1 is safe to assume
             mysql.execute('drop table t1;')
-            mysql.execute(create_sql)
+            mysql.execute(create_table_sql)
         else:
             print("This MySQL table already exisit, drop the relevant table" + \
                   " and try running the application again.\n\n" + str(error) + \
@@ -154,8 +150,8 @@ def sanity_check():
     sql_statment='SELECT 1 FROM dual;'
 
     try:
-        single_sql=QueryOneOff(mysql_config)
-        results=single_sql.fetch(sql_statment)
+        oneoff_sql=QueryOneOff(mysql_config)
+        results=oneoff_sql.fetch(sql_statment)
     except:
         print("Unable to connect to mysql. \n" +
               "Check '[mysql]' configurations in " + CONFIGFILE + ".")
@@ -163,8 +159,7 @@ def sanity_check():
 
     # Test persistent connections
     try:
-        multi_sql=QueryPersist(mysql_config, pool_config)
-        multi_results=single_sql.fetch(sql_statment)
+        results=db_pool.fetch(sql_statment)
     except:
         print("Unable to connect to mysql pool.\n" +
               "Check '[pool]' configurations in " + CONFIGFILE + ".")

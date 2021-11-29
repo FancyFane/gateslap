@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 from gateslap.parser import ConfigFile
-
+from gateslap.myconnutils import *
 
 if len(sys.argv) > 1:
     CONFIGFILE=sys.argv[1]
@@ -18,9 +18,12 @@ except FileNotFoundError:
 # TODO: Add more validation for config
 mysql_config = ConfigFile(CONFIGFILE)["mysql"]
 pool_config = ConfigFile(CONFIGFILE)["pool"]
-gateslap_config = ConfigFile(CONFIGFILE)["slappers"]
+gateslap_config = ConfigFile(CONFIGFILE)["gateslap"]
 mysqlslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
 
-# Create a threads variable to help update.
+# Due to the nature of pooled connections we must define
+# our pool in the main package
+db_pool=QueryPersist(mysql_config, pool_config)
+
+# Create a variable to track threads, useful if an inturrupt is given
 background_threads=[]
-screen_position=0

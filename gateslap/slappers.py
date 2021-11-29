@@ -1,19 +1,28 @@
 from gateslap.myconnutils import QueryOneOff, QueryPersist, Database
-from gateslap import mysql_config, pool_config, gateslap_config, background_threads, screen_position
+from gateslap import (mysql_config, gateslap_config,
+background_threads, db_pool)
 import time
 import random
 import threading
 from tqdm import tqdm
 
 class Slapper(object):
-    def __init__(self, sql_file):
+    def __init__(self, sql_file, sql_type):
         self.sql_file = sql_file
         self.min_time = int(gateslap_config['sleep_min'])
         self.max_time = int(gateslap_config['sleep_max'])
         self.timer_on = bool(gateslap_config['sleep_between_query'])
         self.running = True
         self.thread_name = ""
+        self.sql_type = sql_type
         self.file_len()
+        self.db_conn()
+
+    def db_conn(self):
+        if self.sql_type == "persistent":
+            self.db = db_pool
+        elif self.sql_type == "oneoff":
+            self.db = QueryOneOff(mysql_config)
 
     def running():
         doc = "The running property."
@@ -36,46 +45,36 @@ class Slapper(object):
         sleeping=random.randint(self.min_time, self.max_time)/1000
         time.sleep(sleeping)
 
-    def db_connect(self):
-        db = Database(mysql_config)
-        return db
-
     def process_file(self):
-        bar = tqdm(total=self.length, position=screen_position, desc='thread' + self.thread_name)
-        db_conn = self.db_connect()
+        # Create a new progress bar
+        bar = tqdm(total=self.length, desc='thread ' + self.thread_name)
+
+        # Open the given SQL file
         with open(self.sql_file) as file:
             for sql in file:
+
+                # Create a way to kill the loop if Ctrl + C given
                 if self.running != True:
                     break
-                db_conn.execute(sql)
+
+                # Execute the SQL statment
+                self.db.execute(sql)
+
+                # Increment the bar by a value of 1
                 bar.update(1)
+
+                # Sleep for a random amount of time if enabled
                 if self.timer_on:
                     self.sleep_generator()
+
+            # Close the generated progress bar
             bar.close()
 
     def start(self, threadName):
+        # Start a new thread
         self.thread_name=threadName
         thread = threading.Thread(target=self.process_file,
                                   name=self.thread_name,
                                   daemon=True)
         thread.start()
         background_threads.append(thread)
-        global screen_position
-        screen_position += 1
-
-
-class OneSlapper(Slapper):
-    def __init__(self, sql_file):
-        super().__init__(sql_file)
-
-    def db_connect(self):
-        db = QueryOneOff(mysql_config)
-        return db
-
-class PersistentSlapper(OneSlapper):
-    def __init__(self, sql_file):
-        super().__init__(sql_file)
-
-    def db_connect(self):
-        db = QueryPersist(mysql_config, pool_config)
-        return db
