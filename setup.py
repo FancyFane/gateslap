@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        'PyMySQL','DBUtils'
+        'PyMySQL','DBUtils','tqdm'
     ],
     description = ("A utility designed to generate traffic for VTGate."),
     keywords = "mysql vtgate vitess traffic SQL",

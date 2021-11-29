@@ -2,46 +2,72 @@
 
 from gateslap.myconnutils import QueryOneOff, QueryPersist
 from gateslap.slappers import OneSlapper, PersistentSlapper
-from gateslap import mysql_config, pool_config, vslap_config, mslap_config, CONFIGFILE
+from gateslap import *
 from  gateslap.helpers import *
-import sys
-from threading import Thread
+import sys, signal, time
 
 
 
-# # TODO:   Create multi thread connections to the database
+
+# # TODO:   Add in SSL support
 #           Allow for Custom SQL/Tables
 #           Expand on sanity check CPU/Memory limits
 #           Create Unit Test
 
+background_processes = []
 
 def start():
-
     sanity_check()
     create_table()
     sql_files=generate_sql()
     slap_vtgate(sql_files)
+    for line in range(int(len(background_threads))):
+        print("\n")
+
+def sigint_handler(signal, frame):
+    for line in range(int(len(background_threads))):
+        print("\n")
+    print ('CTRL + C detected cleaning up....')
+    print("Sending kill to threads...")
+    for t in background_processes:
+        t.running = False
+    time.sleep(1)
+    if gateslap_config['drop_table']:
+        # TODO work with custom tables in the future t1 is safe to assume
+        print("dropping table...")
+        mysql=QueryOneOff(mysql_config)
+        mysql.execute('drop table t1;')
+        print("exiting gracefully.")
+    sys.exit(0)
+signal.signal(signal.SIGINT, sigint_handler)
 
 
 def slap_vtgate(sql_files):
 
-    for idx, file in enumerate(sql_files['persistent']):
+    def create_thread(slap_type):
+        for idx, file in enumerate(sql_files[slap_type]):
+            slapper_name=slap_type + str(idx+1)
+            if slap_type == 'persistent':
+                exec(slapper_name + " = PersistentSlapper('" + file + "')")
+            elif slap_type == 'oneoff':
+                exec(slapper_name + " = OneSlapper('" + file + "')")
 
-        #### Stopping place is here
-        #### Need to create a thread that calls Slapper Objects
-        print(file)
-        print(idx+1)
-        newslapper = PersistentSlapper(file)
-        pass
+            exec(slapper_name + ".start('" + slapper_name + "')")
+            exec("background_processes.append(" + slapper_name + ")")
 
+    create_thread('persistent')
+    create_thread('oneoff')
 
-    for file in sql_files['oneoff']:
-        newslapper = OneSlapper(file)
+    for t in background_threads:
+         t.join()
 
 
 def generate_sql():
 
     # Initalize a dictionary of files to return
+    # Syntehtic SQL will be located in the directory specified by:
+    # gateslap_config['tmp_dir']
+
     sql_files = {}
 
     def create_sql_file(cmd, file):
@@ -50,30 +76,31 @@ def generate_sql():
         if error != "":
             print("An error has occured while generating synthetic SQL:\n\n" + \
             error + "\n\nCheck '[mysqlslap]' and '[slappers]' " + \
-            "configurations in " + CONFIGFILE + ".\n\n")
+            "configurations in " + CONFIGFILE + ". Also, make sure " +\
+            "you have mysqlslap binaries installed.\n\n")
             sys.exit(1)
 
-    tmp_dir=vslap_config['tmp_dir']
+    tmp_dir=gateslap_config['tmp_dir']
 
     mysqlslap="mysqlslap " + \
     "--create-schema=" + mysql_config['database'] + \
-    " --number-int-cols=" + mslap_config['int_cols'] + \
-    " --number-char-cols=" + mslap_config['char_cols'] + \
-    " --number-of-queries=" + mslap_config['queries_per_process'] + \
-    " --auto-generate-sql-load-type=" + mslap_config['sql_type'] + \
+    " --number-int-cols=" + mysqlslap_config['int_cols'] + \
+    " --number-char-cols=" + mysqlslap_config['char_cols'] + \
+    " --number-of-queries=" + mysqlslap_config['queries_per_process'] + \
+    " --auto-generate-sql-load-type=" + mysqlslap_config['sql_type'] + \
     " --auto-generate-sql --no-drop --only-print | " + \
-    "awk '!/CREATE SCHEMA|CREATE TABLE/' |" + \
-    "sed '/^SELECT/ s/;$/ LIMIT 9990;/'"
+    "awk '!/CREATE SCHEMA|CREATE TABLE|use " + mysql_config['database'] + \
+    "/' | sed '/^SELECT/ s/;$/ LIMIT 9990;/'"
 
     sql_files.update({'persistent':[]})
-    num_of_sql_files = int(vslap_config['persistent_conns'])
+    num_of_sql_files = int(gateslap_config['persistent_conns'])
     for file in range(num_of_sql_files):
         sql_file=tmp_dir + '/persistent_synthetic_sql_' + str(file+1) + '.sql'
         create_sql_file(mysqlslap, sql_file)
         sql_files['persistent'].append(sql_file)
 
     sql_files.update({'oneoff':[]})
-    num_of_sql_files = int(vslap_config['oneoff_conns'])
+    num_of_sql_files = int(gateslap_config['oneoff_conns'])
     for file in range(num_of_sql_files):
         sql_file=tmp_dir + '/oneoff_synthetic_sql_' + str(file+1) + '.sql'
         create_sql_file(mysqlslap, sql_file)
@@ -88,8 +115,8 @@ def generate_sql():
 
 def create_table():
     mysqlslap="mysqlslap --only-print --number-int-cols=" + \
-    mslap_config['int_cols'] + " --number-char-cols=" + \
-    mslap_config['char_cols'] + " --number-of-queries=1 \
+    mysqlslap_config['int_cols'] + " --number-char-cols=" + \
+    mysqlslap_config['char_cols'] + " --number-of-queries=1 \
     --auto-generate-sql | awk '/CREATE TABLE/'"
 
     generate_create_sql=run_command(mysqlslap, shell=True)
@@ -108,7 +135,7 @@ def create_table():
         mysql.execute(create_sql)
     # Error occurs if table already exisit
     except Exception as error:
-        if vslap_config['drop_table']:
+        if gateslap_config['drop_table']:
             # TODO work with custom tables in the future t1 is safe to assume
             mysql.execute('drop table t1;')
             mysql.execute(create_sql)
@@ -123,7 +150,7 @@ def sanity_check():
         print("This program requires Python 3.6 or later.")
         sys.exit(1)
 
-    # Single SQL querry per connection
+    # Single SQL to test database connection
     sql_statment='SELECT 1 FROM dual;'
 
     try:

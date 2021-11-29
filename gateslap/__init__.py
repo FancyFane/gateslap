@@ -18,5 +18,9 @@ except FileNotFoundError:
 # TODO: Add more validation for config
 mysql_config = ConfigFile(CONFIGFILE)["mysql"]
 pool_config = ConfigFile(CONFIGFILE)["pool"]
-vslap_config = ConfigFile(CONFIGFILE)["slappers"]
-mslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
+gateslap_config = ConfigFile(CONFIGFILE)["slappers"]
+mysqlslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
+
+# Create a threads variable to help update.
+background_threads=[]
+screen_position=0
