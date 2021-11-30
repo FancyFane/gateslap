@@ -55,6 +55,7 @@ class Slapper(object):
 
                 # Create a way to kill the loop if Ctrl + C given
                 if self.running != True:
+                    bar.close()
                     break
 
                 # Execute the SQL statment
