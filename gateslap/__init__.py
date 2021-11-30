@@ -25,5 +25,9 @@ mysqlslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
 # our pool in the main package
 db_pool=QueryPersist(mysql_config, pool_config)
 
+# Just a note we can not create a thread safe pymysql object
+# this means it will need to be declared when it's needed.
+# https://stackoverflow.com/questions/47163438/is-pymysql-connection-thread-safe-is-pymysql-cursor-thread-safe
+
 # Create a variable to track threads, useful if an inturrupt is given
 background_threads=[]
