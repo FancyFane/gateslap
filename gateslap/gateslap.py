@@ -24,7 +24,7 @@ def start():
 
 
 def sigint_handler(signal, frame):
-    for line in range(int(len(background_threads))):
+    for line in range(int(len(background_threads)/2)+1):
         print("\n")
     print ('CTRL + C detected cleaning up....')
     print("Sending kill to threads...")
