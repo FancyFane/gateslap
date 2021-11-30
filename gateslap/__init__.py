@@ -23,8 +23,15 @@ mysqlslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
 
 # Due to the nature of pooled connections we must define
 # our pool in the main package
-db_pool=QueryPersist(mysql_config, pool_config)
-
+try:
+    db_pool=QueryPersist(mysql_config, pool_config)
+except pymysql.err.OperationalError as e:
+    errnum = e.args[0]
+    if errnum == 2003:
+        print("Unable to connect to database using connection details:")
+        for val in mysql_config:
+            print(val + ": " + mysql_config[val])
+        sys.exit(1)
 # Just a note we can not create a thread safe pymysql object
 # this means it will need to be declared when it's needed.
 # https://stackoverflow.com/questions/47163438/is-pymysql-connection-thread-safe-is-pymysql-cursor-thread-safe
