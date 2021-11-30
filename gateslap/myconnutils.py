@@ -1,5 +1,6 @@
 import pymysql
 from dbutils.pooled_db import PooledDB, SharedDBConnection
+import time, sys
 
 class Database(object):
 
@@ -17,7 +18,28 @@ class Database(object):
         self.port = int(mysql_config['port'])
         self.charset = mysql_config['charset']
         self.autocommit = mysql_config['autocommit']
+        self.retry = bool(mysql_config['retry'])
+        self.retry_time = int(mysql_config['retry_time'])
 
+    def run_sql(self, sql):
+        try:
+            self.cur.execute(sql)
+        except pymysql.err.OperationalError as e:
+            errnum = e.args[0]
+            errmsg = e.args[1]
+            if errnum == 1105:
+                print("\nA change has been dected to PRIMARY tablet\n")
+                if self.retry == True:
+                    print("Retry enabled, waiting " + str(self.retry_time) + \
+                          "ms and trying SQL statment again.")
+                    time.sleep(self.retry_time/1000)
+                    self.cur.execute(sql)
+                else:
+                    print("Retry disabled, displaying the relevant" + \
+                          "error msg and exiting:" + \
+                          "\nError Number: " + str(errnum) + \
+                          "\nError Message: " + errmsg)
+                    exit(1)
 
 
 # Creating easy human readable object name to use in code
@@ -25,14 +47,14 @@ class QueryOneOff(Database):
 
         def fetch(self, sql):
             self.connect()
-            self.cur.execute(sql)
+            self.run_sql(sql)
             result = self.cur.fetchall()
             self.disconnect()
             return result
 
         def execute(self, sql):
             self.connect()
-            self.cur.execute(sql)
+            self.run_sql(sql)
             self.disconnect()
 
         def disconnect(self):
@@ -40,9 +62,13 @@ class QueryOneOff(Database):
             self.con.close()
 
         def connect(self):
-            self.con = pymysql.connect(host=self.host, user=self.user, password=self.password,
-                                       db=self.db, port=self.port, cursorclass=pymysql.cursors.
-                                       DictCursor)
+            self.con = pymysql.connect(host=self.host,
+                                   user=self.user,
+                                   password=self.password,
+                                   db=self.db,
+                                   port=self.port,
+                                   cursorclass=pymysql.cursors.
+                                   DictCursor)
             self.cur = self.con.cursor()
 
 
@@ -75,16 +101,16 @@ class QueryPersist(Database):
 
     def execute(self, sql):
         db = self.pool.connection()
-        cursor = db.cursor()
-        result = cursor.execute(sql)
+        self.cur = db.cursor()
+        self.run_sql(sql)
         db.commit()
         db.close()
-        return result
+
 
     def fetch(self, sql):
         db = self.pool.connection()
-        cursor = db.cursor()
-        result = cursor.execute(sql)
-        result = cursor.fetchall()
+        self.cur = db.cursor()
+        self.run_sql(sql)
+        result = self.cur.fetchall()
         db.close()
         return result
