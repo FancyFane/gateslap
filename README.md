@@ -1,9 +1,10 @@
 # gateslap
-Utility for generating traffic for VTGate.
+Utility for generating traffic for [Vitess](https://github.com/vitessio/vitess) VTGate.
 
 There are several knobs you can turn in the slapper.ini file the purpose
-of this utility is to generate light VTGate traffic for testing. SQL files
-are generated using mysqlslap
+of this utility is to generate light VTGate traffic for testing. Synthetic
+SQL files are generated using mysqlslap utility; this is how the name 
+`gateslap` came to be. 
 
 ## Requirements
 Python can pip install the packages for you, however, if you want the
@@ -46,6 +47,7 @@ gateslap /path/to/slapper.ini
 ```
 
 ## TODO
+* Allow for SSL encryption
 * Allow for custom SQL files and tables
 * Develop test files
 * Expand sanity check when running
@@ -63,9 +65,4 @@ virtual venv
 ```
 
 The reset.sh script is a helper script to quickly clear things out and re-install the local copy
-while development work continues. Once it runs you should be able to run the command anywhere while
-in the virtual environment.
-
-```
-gateslap
-````
+while development work continues. 
