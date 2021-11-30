@@ -32,7 +32,7 @@ sudo yum -y install python3-dbutils python3-PyMySQL python3-tqdm
 ```
 git clone https://github.com/FancyFane/gateslap.git
 cd gateslap
-python setup.py install
+sudo python3 setup.py install
 ```
 
 ## Usage
