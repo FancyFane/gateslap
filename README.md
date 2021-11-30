@@ -25,7 +25,6 @@ You will need to enssure you have epel enabled to install these packages.
 ```
 sudo yum -y install epel-release
 sudo yum -y install python3-dbutils python3-PyMySQL python3-tqdm
-
 ```
 
 ## Install
