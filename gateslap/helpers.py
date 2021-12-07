@@ -6,6 +6,15 @@ def find_table(create_sql):
     table = search.group(0)
     return table
 
+def get_filename(path, ext=True):
+    '''Given a path return the file name'''
+    if ext == True:
+        search = re.search('([^\/]+$)', path)
+    else:
+        search = re.search('([^\/]+(?=\.))', path)
+    filename = search.group(0)
+    return filename
+
 def run_background_command(command):
     '''Run a command as a subprocess and place in the background
        returns PID of spawned process

@@ -49,6 +49,7 @@ class Database(object):
                         sys.exit(1)
                     pass
             elif errnum == 1050:
+                table = ""
                 if self.drop_table:
                     table=find_table(sql)
                     print("Duplicate table " + table + " found, dropping " + \

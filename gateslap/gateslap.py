@@ -4,6 +4,7 @@ from gateslap.myconnutils import QueryOneOff, QueryPooled
 from gateslap.slappers import Slapper
 from gateslap import *
 from  gateslap.helpers import *
+from itertools import chain
 import sys, signal, time
 
 
@@ -34,6 +35,7 @@ def drop_table_check():
     running or when a CTRL + C event is detected'''
     if mysql_config['drop_table']:
         print("\nDropping generated tables per drop_tables.")
+        time.sleep(2)
         for table in created_tables:
             print("Dropping table " + table + ".")
             mysql.execute('drop table ' + table + ';')
@@ -118,6 +120,8 @@ def create_table():
         mysql.execute(sql)
         created_tables.append(table)
 
+    # If there's a custom create table run it here, keep track of the create
+    # table so we can remove it later
     if custom_config['create_table_sql']:
         with open(custom_config['create_table_sql']) as file:
             for sql in file:
@@ -137,10 +141,35 @@ def create_table():
                         print("Exiting per configuration of exit_on_error.")
                         sys.exit(1)
                 mysql.execute(sql)
-                # It is possible to have a duplicate table name so check before
-                # adding the new value
+                # It is possible to have a duplicate table name (user error)
+                # so check before adding the new value
                 if table not in created_tables:
                     created_tables.append(table)
+
+    # If the tables need to be loaded up do this here
+    # Utilizing already create Slapper Class to quickly process this file
+    # Disabling the timer (despite config setting) so it loads quicker
+    if custom_config['load_sql']:
+        sql_file = custom_config['load_sql']
+        new_file = gateslap_config['tmp_dir'] + "/new_" + get_filename(sql_file)
+
+        if gateslap_config['always_unique']:
+            cmd = "sort " + sql_file + " | uniq"
+            # Create New SQL file with uniq values
+            run=run_command(cmd + " > " + new_file, shell=True)
+            # Point the sql_file to the new file
+            sql_file = new_file
+
+        load_sql = Slapper(sql_file, "persist")
+        # Disable sleep timer for loading
+        load_sql.timer_on = ""
+        load_sql.start("Loading Data")
+        # Pop this off the background list and process now
+        loader = background_threads.pop()
+        loader.join()
+        print("\n")
+
+
 
 def generate_sql():
     ''' There are two ways to define SQL files for threads, the first is Using
@@ -173,7 +202,10 @@ def generate_sql():
     " --auto-generate-sql-unique-write-number=" + \
     mysqlslap_config['auto-generate-sql-unique-write-number'] + " | " + \
     "awk '!/CREATE SCHEMA|CREATE TABLE|use " + mysql_config['database'] + \
-    "/' | sed '/^SELECT/ s/;$/ LIMIT 9990;/' | sort | uniq"
+    "/' | sed '/^SELECT/ s/;$/ LIMIT 9990;/'"
+
+    if gateslap_config['always_unique']:
+        mysqlslap += " | sort | uniq"
 
     sql_files.update({'pooled':[]})
     num_of_sql_files = int(gateslap_config['pooled_conns'])
@@ -196,9 +228,19 @@ def generate_sql():
         create_sql_file(mysqlslap, sql_file)
         sql_files['persist'].append(sql_file)
 
-    # TODO: Allow an override for custom SQL files here.
-    # Config file custom_persist_sql_list=custom1.sql,custom2.sql,etc
-    # Config file custom_oneoff_sql_list=customa.sql,customb.sql,etc
+    # If a list of custom SQL files were supplied add them to the process list
+    if custom_config['pooled_sql']:
+        custom_sql = custom_config['pooled_sql'].split(",")
+        sql_files['pooled'].extend(custom_sql)
+
+    if custom_config['oneoff_sql']:
+        custom_sql = custom_config['oneoff_sql'].split(",")
+        sql_files['oneoff'].extend(custom_sql)
+
+    if custom_config['persist_sql']:
+        custom_sql = custom_config['persist_sql'].split(",")
+        sql_files['persist'].extend(custom_sql)
+
 
     return sql_files
 
@@ -208,9 +250,16 @@ def slap_vtgate(sql_files):
     the dictionary should be defined by this point. exec() is used as this is
     being used to generate variable names for threads.'''
 
+
     for key, files in sql_files.items():
         for idx, file in enumerate(files):
-            slapper_name=key + str(idx + 1)
+            slapper_name = key + str(idx + 1)
+
+            # This is a custom file, rename thread name to follow process easier
+            if file in custom_config[ key + '_sql']:
+                slapper_name += "_" + get_filename(file, ext=False)
+
+
             if key == 'pooled':
                 exec(slapper_name + " = Slapper('" + file + "', 'pooled')")
             elif key == 'oneoff':
@@ -223,3 +272,6 @@ def slap_vtgate(sql_files):
 
     for t in background_threads:
         t.join()
+
+    # Wait for all threads to exit properly then continue
+    time.sleep(.5)
