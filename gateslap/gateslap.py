@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from gateslap.myconnutils import QueryOneOff, QueryPersist
+from gateslap.myconnutils import QueryOneOff, QueryPooled
 from gateslap.slappers import Slapper
 from gateslap import *
 from  gateslap.helpers import *
@@ -13,55 +13,140 @@ import sys, signal, time
 #           Expand on sanity check CPU/Memory limits
 #           Create Unit Test files
 
+# Variables which help us in the "Ctrl + C" event
 background_processes = []
+created_tables = []
 
+# Define a mysql connection for one off connections
+# Used in testing connections and creating/dropping tables
+mysql=QueryOneOff(mysql_config)
 
 def start():
     sanity_check()
     create_table()
     sql_files=generate_sql()
     slap_vtgate(sql_files)
+    drop_table_check()
+
+
+def drop_table_check():
+    '''Drop tables if configured to do so, at the end of the program
+    running or when a CTRL + C event is detected'''
+    if mysql_config['drop_table']:
+        print("\nDropping generated tables per drop_tables.")
+        for table in created_tables:
+            print("Dropping table " + table + ".")
+            mysql.execute('drop table ' + table + ';')
+    sys.exit(0)
 
 
 def sigint_handler(signal, frame):
-    for line in range(int(len(background_threads)/2)+1):
-        print("\n")
+    '''Close the program if user gives CTRL + C commands'''
     print ('CTRL + C detected cleaning up....')
     print("Sending kill to threads...")
     for t in background_processes:
         t.running = False
-    time.sleep(1)
-    if gateslap_config['drop_table']:
-        # TODO work with custom tables in the future t1 is safe to assume
-        print("dropping table...")
-        mysql=QueryOneOff(mysql_config)
-        mysql.execute('drop table t1;')
-        print("exiting gracefully.")
-    sys.exit(0)
+    time.sleep(int(gateslap_config['sleep_max'])/1000)
+    drop_table_check()
+
 signal.signal(signal.SIGINT, sigint_handler)
 
 
-def slap_vtgate(sql_files):
-    for key, files in sql_files.items():
-        for idx, file in enumerate(files):
-            slapper_name=key + str(idx + 1)
-            if key == 'persistent':
-                exec(slapper_name + " = Slapper('" + file + "', 'persistent')")
-            elif key == 'oneoff':
-                exec(slapper_name + " = Slapper('" + file + "', 'oneoff')")
+def sanity_check():
+    '''Run basic test and exit if problems are detected.'''
+    # TODO: Add in more basic checks here.
+    if sys.version_info.major != 3 or sys.version_info.minor < 6:
+        print("This program requires Python 3.6 or later.")
+        sys.exit(1)
 
-            exec(slapper_name + ".start('" + slapper_name + "')")
-            exec("background_processes.append(" + slapper_name + ")")
+    # Test SQL statment
+    sql_statment='SELECT 1 FROM dual;'
 
-    for t in background_threads:
-        t.join()
+    # Test one off database connections
+    try:
+        results=mysql.fetch(sql_statment)
+    except:
+        print("Unable to connect to mysql. \n" +
+              "Check '[mysql]' configurations in " + CONFIGFILE + ".")
+        sys.exit(1)
 
+    # Test persistent connections
+    try:
+        oneoff_sql=QueryPersist(mysql_config, pool_config)
+        results=oneoff_sql.fetch(sql_statment)
+    except:
+        print("Unable to connect to mysql with persisting connection. \n" +
+              "Check 'ping' in '[pool]' configurations in " + CONFIGFILE + ".")
+        sys.exit(1)
+
+    # Test pooled connections
+    try:
+        results=db_pool.fetch(sql_statment)
+    except Exception as e:
+        print("Unable to connect to mysql with a pooled connection.\n" +
+              "Check '[pool]' configurations in " + CONFIGFILE + ".\n")
+        print(e)
+        sys.exit(1)
+
+
+def create_table():
+    '''There are two ways tables can be created, first is automatic mode,
+    which uses mysqlslap to generate SQL statments, and second is using custom
+    sql statments provided by 'create_table_sql' in [custom].'''
+
+    mysqlslap="mysqlslap --only-print --number-int-cols=" + \
+    mysqlslap_config['int_cols'] + " --number-char-cols=" + \
+    mysqlslap_config['char_cols'] + " --number-of-queries=1 \
+    --auto-generate-sql | awk '/CREATE TABLE/'"
+
+    generate_create_sql=run_command(mysqlslap, shell=True)
+    error=generate_create_sql[1].decode("utf-8")
+
+    if error != "":
+        print("An error has occured while generating the MySQL table " + \
+              "creation sql:\n\n" + error + "\n\nCheck '[mysqlslap]' "+ \
+              "configuration  " + CONFIGFILE + ".\n\n")
+        sys.exit(1)
+
+    sql=generate_create_sql[2].decode("utf-8")
+    table=find_table(sql)
+    auto_gen = (int(gateslap_config['pooled_conns']) +
+                int(gateslap_config['oneoff_conns']) +
+                int(gateslap_config['persist_conns']))
+    # Count all connections if there's at least one create auto gen table
+    if auto_gen > 0:
+        mysql.execute(sql)
+        created_tables.append(table)
+
+    if custom_config['create_table_sql']:
+        with open(custom_config['create_table_sql']) as file:
+            for sql in file:
+                try:
+                    table=find_table(sql)
+                except Exception as e:
+                    print("No CREATE TABLE statment found in " + \
+                          custom_config['create_table_sql'])
+                if table in created_tables:
+                    print("\nWARNING: The table " + table + " already exist." + \
+                          "\nIt is suggested you modify your [custom] " + \
+                          "create_table_sql file\n" + \
+                          "to ensure there are no table conflicts." + \
+                          "If you are using auto generate features t1 is " + \
+                          "a reserved table name.")
+                    if mysql_config['exit_on_error'] == True:
+                        print("Exiting per configuration of exit_on_error.")
+                        sys.exit(1)
+                mysql.execute(sql)
+                # It is possible to have a duplicate table name so check before
+                # adding the new value
+                if table not in created_tables:
+                    created_tables.append(table)
 
 def generate_sql():
-
-    # Initalize a dictionary of files to return
-    # Syntehtic SQL will be located in the directory specified by:
-    # gateslap_config['tmp_dir']
+    ''' There are two ways to define SQL files for threads, the first is Using
+    mysqlslap, in which SQL files will be created in the directiory specified by
+    tmp_dir in the [gateslap] config. Second, you can list out custom SQL files
+    using pooled_sql, oneoff_sql, or persist_sql in the [custom] config.'''
 
     sql_files = {}
 
@@ -84,16 +169,18 @@ def generate_sql():
     " --number-char-cols=" + mysqlslap_config['char_cols'] + \
     " --number-of-queries=" + mysqlslap_config['queries_per_process'] + \
     " --auto-generate-sql-load-type=" + mysqlslap_config['sql_type'] + \
-    " --auto-generate-sql --no-drop --only-print | " + \
+    " --auto-generate-sql --no-drop --only-print " + \
+    " --auto-generate-sql-unique-write-number=" + \
+    mysqlslap_config['auto-generate-sql-unique-write-number'] + " | " + \
     "awk '!/CREATE SCHEMA|CREATE TABLE|use " + mysql_config['database'] + \
-    "/' | sed '/^SELECT/ s/;$/ LIMIT 9990;/'"
+    "/' | sed '/^SELECT/ s/;$/ LIMIT 9990;/' | sort | uniq"
 
-    sql_files.update({'persistent':[]})
-    num_of_sql_files = int(gateslap_config['persistent_conns'])
+    sql_files.update({'pooled':[]})
+    num_of_sql_files = int(gateslap_config['pooled_conns'])
     for file in range(num_of_sql_files):
-        sql_file=tmp_dir + '/persistent_synthetic_sql_' + str(file+1) + '.sql'
+        sql_file=tmp_dir + '/pooled_synthetic_sql_' + str(file+1) + '.sql'
         create_sql_file(mysqlslap, sql_file)
-        sql_files['persistent'].append(sql_file)
+        sql_files['pooled'].append(sql_file)
 
     sql_files.update({'oneoff':[]})
     num_of_sql_files = int(gateslap_config['oneoff_conns'])
@@ -102,6 +189,12 @@ def generate_sql():
         create_sql_file(mysqlslap, sql_file)
         sql_files['oneoff'].append(sql_file)
 
+    sql_files.update({'persist':[]})
+    num_of_sql_files = int(gateslap_config['persist_conns'])
+    for file in range(num_of_sql_files):
+        sql_file=tmp_dir + '/persist_synthetic_sql_' + str(file+1) + '.sql'
+        create_sql_file(mysqlslap, sql_file)
+        sql_files['persist'].append(sql_file)
 
     # TODO: Allow an override for custom SQL files here.
     # Config file custom_persist_sql_list=custom1.sql,custom2.sql,etc
@@ -109,58 +202,24 @@ def generate_sql():
 
     return sql_files
 
-def create_table():
-    mysqlslap="mysqlslap --only-print --number-int-cols=" + \
-    mysqlslap_config['int_cols'] + " --number-char-cols=" + \
-    mysqlslap_config['char_cols'] + " --number-of-queries=1 \
-    --auto-generate-sql | awk '/CREATE TABLE/'"
+def slap_vtgate(sql_files):
+    '''There are three kinds of slappers, oneoff slappers, persistent slappers,
+    and pooled slappers. These will be spun up per the dectionary passed to it,
+    the dictionary should be defined by this point. exec() is used as this is
+    being used to generate variable names for threads.'''
 
-    generate_create_sql=run_command(mysqlslap, shell=True)
-    error=generate_create_sql[1].decode("utf-8")
-    if error != "":
-        print("An error has occured while generating the MySQL table " + \
-              "creation sql:\n\n" + error + "\n\nCheck '[mysqlslap]' "+ \
-              "configuration  " + CONFIGFILE + ".\n\n")
-        sys.exit(1)
-    mysql=QueryOneOff(mysql_config)
+    for key, files in sql_files.items():
+        for idx, file in enumerate(files):
+            slapper_name=key + str(idx + 1)
+            if key == 'pooled':
+                exec(slapper_name + " = Slapper('" + file + "', 'pooled')")
+            elif key == 'oneoff':
+                exec(slapper_name + " = Slapper('" + file + "', 'oneoff')")
+            elif key == 'persist':
+                exec(slapper_name + " = Slapper('" + file + "', 'persist')")
 
-    # TODO: If custom SQL provided override 'create_table_sql' here
+            exec(slapper_name + ".start('" + slapper_name + "')")
+            exec("background_processes.append(" + slapper_name + ")")
 
-    create_table_sql=generate_create_sql[2].decode("utf-8")
-    try:
-        mysql.execute(create_table_sql)
-    # Error occurs if table already exisit
-    except Exception as error:
-        if gateslap_config['drop_table']:
-            # TODO work with custom tables in the future t1 is safe to assume
-            mysql.execute('drop table t1;')
-            mysql.execute(create_table_sql)
-        else:
-            print("This MySQL table already exisit, drop the relevant table" + \
-                  " and try running the application again.\n\n" + str(error) + \
-                  "\n\n")
-            sys.exit(1)
-
-def sanity_check():
-    if sys.version_info.major != 3 or sys.version_info.minor < 6:
-        print("This program requires Python 3.6 or later.")
-        sys.exit(1)
-
-    # Single SQL to test database connection
-    sql_statment='SELECT 1 FROM dual;'
-
-    try:
-        oneoff_sql=QueryOneOff(mysql_config)
-        results=oneoff_sql.fetch(sql_statment)
-    except:
-        print("Unable to connect to mysql. \n" +
-              "Check '[mysql]' configurations in " + CONFIGFILE + ".")
-        sys.exit(1)
-
-    # Test persistent connections
-    try:
-        results=db_pool.fetch(sql_statment)
-    except:
-        print("Unable to connect to mysql pool.\n" +
-              "Check '[pool]' configurations in " + CONFIGFILE + ".")
-        sys.exit(1)
+    for t in background_threads:
+        t.join()

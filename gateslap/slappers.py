@@ -1,5 +1,5 @@
-from gateslap.myconnutils import QueryOneOff, QueryPersist, Database
-from gateslap import (mysql_config, gateslap_config,
+from gateslap.myconnutils import QueryOneOff, QueryPooled, QueryPersist
+from gateslap import (mysql_config, gateslap_config, pool_config,
 background_threads, db_pool)
 import time
 import random
@@ -19,10 +19,12 @@ class Slapper(object):
         self.db_conn()
 
     def db_conn(self):
-        if self.sql_type == "persistent":
+        if self.sql_type == "pooled":
             self.db = db_pool
         elif self.sql_type == "oneoff":
             self.db = QueryOneOff(mysql_config)
+        elif self.sql_type == "persist":
+            self.db = QueryPersist(mysql_config, pool_config)
 
     def running():
         doc = "The running property."
@@ -69,6 +71,7 @@ class Slapper(object):
                     self.sleep_generator()
 
             # Close the generated progress bar
+            time.sleep(self.max_time/1000)
             bar.close()
 
     def start(self, threadName):

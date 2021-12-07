@@ -1,4 +1,10 @@
-import subprocess
+import subprocess, re
+
+def find_table(create_sql):
+    '''Given a create SQL statment string, return the table name'''
+    search = re.search('(?<=CREATE TABLE )[^ ]*', create_sql, re.IGNORECASE)
+    table = search.group(0)
+    return table
 
 def run_background_command(command):
     '''Run a command as a subprocess and place in the background
