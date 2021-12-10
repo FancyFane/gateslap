@@ -1,6 +1,5 @@
 from gateslap.myconnutils import QueryOneOff, QueryPooled, QueryPersist
-from gateslap import (mysql_config, gateslap_config, pool_config,
-background_threads, db_pool)
+from gateslap import *
 import re
 import time
 import random

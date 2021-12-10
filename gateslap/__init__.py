@@ -34,6 +34,11 @@ except pymysql.err.OperationalError as e:
         for val in mysql_config:
             print(val + ": " + mysql_config[val])
         sys.exit(1)
+    elif errnum == 1049:
+        print("Connected to MySQL, however did not find specified " + \
+              "database: " + mysql_config["database"] + ". Check your" + \
+              " database config in [mysql] section.")
+        sys.exit(1)
 
 
 # Just a note we can not create a thread safe pymysql object
