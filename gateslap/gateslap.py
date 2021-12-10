@@ -4,13 +4,9 @@ from gateslap.myconnutils import QueryOneOff, QueryPooled
 from gateslap.slappers import Slapper
 from gateslap import *
 from  gateslap.helpers import *
-from itertools import chain
 import sys, signal, time
 
-
-
 # # TODO:   Add in SSL support for MySQL connection
-#           Allow for Custom SQL files and Tables
 #           Expand on sanity check CPU/Memory limits
 #           Create Unit Test files
 
@@ -19,26 +15,27 @@ background_processes = []
 created_tables = []
 
 # Define a mysql connection for one off connections
-# Used in testing connections and creating/dropping tables
-mysql=QueryOneOff(mysql_config)
+persist_sql=QueryPersist(mysql_config, pool_config,
+                        "main utility")
 
 def start():
-    sanity_check()
+    #sanity_check()
     create_table()
     sql_files=generate_sql()
     slap_vtgate(sql_files)
-    drop_table_check()
+    stop_gracefully()
 
 
-def drop_table_check():
+def stop_gracefully():
     '''Drop tables if configured to do so, at the end of the program
-    running or when a CTRL + C event is detected'''
+    disconnect from the persistent mysql connection'''
     if mysql_config['drop_table']:
         print("\nDropping generated tables per drop_tables.")
         time.sleep(2)
         for table in created_tables:
             print("Dropping table " + table + ".")
-            mysql.execute('drop table ' + table + ';')
+            persist_sql.execute('drop table ' + table + ';')
+    persist_sql.disconnect()
     sys.exit(0)
 
 
@@ -46,10 +43,10 @@ def sigint_handler(signal, frame):
     '''Close the program if user gives CTRL + C commands'''
     print ('CTRL + C detected cleaning up....')
     print("Sending kill to threads...")
-    for t in background_processes:
-        t.running = False
+    for process in background_processes:
+        process.running = ""
     time.sleep(int(gateslap_config['sleep_max'])/1000)
-    drop_table_check()
+    stop_gracefully()
 
 signal.signal(signal.SIGINT, sigint_handler)
 
@@ -66,6 +63,7 @@ def sanity_check():
 
     # Test one off database connections
     try:
+        mysql=QueryOneOff(mysql_config)
         results=mysql.fetch(sql_statment)
     except:
         print("Unable to connect to mysql. \n" +
@@ -74,11 +72,11 @@ def sanity_check():
 
     # Test persistent connections
     try:
-        oneoff_sql=QueryPersist(mysql_config, pool_config)
-        results=oneoff_sql.fetch(sql_statment)
-    except:
+        results=persist_sql.fetch(sql_statment)
+    except Exception as e:
         print("Unable to connect to mysql with persisting connection. \n" +
               "Check 'ping' in '[pool]' configurations in " + CONFIGFILE + ".")
+        print(e)
         sys.exit(1)
 
     # Test pooled connections
@@ -117,7 +115,7 @@ def create_table():
                 int(gateslap_config['persist_conns']))
     # Count all connections if there's at least one create auto gen table
     if auto_gen > 0:
-        mysql.execute(sql)
+        persist_sql.execute(sql)
         created_tables.append(table)
 
     # If there's a custom create table run it here, keep track of the create
@@ -140,35 +138,33 @@ def create_table():
                     if mysql_config['exit_on_error'] == True:
                         print("Exiting per configuration of exit_on_error.")
                         sys.exit(1)
-                mysql.execute(sql)
+                persist_sql.execute(sql)
                 # It is possible to have a duplicate table name (user error)
                 # so check before adding the new value
                 if table not in created_tables:
                     created_tables.append(table)
 
     # If the tables need to be loaded up do this here
-    # Utilizing already create Slapper Class to quickly process this file
-    # Disabling the timer (despite config setting) so it loads quicker
+    # Utilizing Slapper class to quickly process this custom file
     if custom_config['load_sql']:
         sql_file = custom_config['load_sql']
         new_file = gateslap_config['tmp_dir'] + "/new_" + get_filename(sql_file)
 
+        # Test for uniqueness
         if gateslap_config['always_unique']:
             cmd = "sort " + sql_file + " | uniq"
-            # Create New SQL file with uniq values
             run=run_command(cmd + " > " + new_file, shell=True)
-            # Point the sql_file to the new file
             sql_file = new_file
 
-        load_sql = Slapper(sql_file, "persist")
-        # Disable sleep timer for loading
+        # Disable sleep timer for loading SQL file
+        # NOTE: We need to track threads and processes independently
+        load_sql = Slapper(sql_file, "persist", "Loading SQL")
         load_sql.timer_on = ""
-        load_sql.start("Loading Data")
-        # Pop this off the background list and process now
-        loader = background_threads.pop()
-        loader.join()
+        background_processes.append(load_sql)
+        load_sql.start()
+        background_threads.pop().join()
+        background_processes.pop()
         print("\n")
-
 
 
 def generate_sql():
@@ -190,7 +186,6 @@ def generate_sql():
             sys.exit(1)
 
     tmp_dir=gateslap_config['tmp_dir']
-
 
     mysqlslap="mysqlslap " + \
     "--create-schema=" + mysql_config['database'] + \
@@ -241,7 +236,6 @@ def generate_sql():
         custom_sql = custom_config['persist_sql'].split(",")
         sql_files['persist'].extend(custom_sql)
 
-
     return sql_files
 
 def slap_vtgate(sql_files):
@@ -250,26 +244,25 @@ def slap_vtgate(sql_files):
     the dictionary should be defined by this point. exec() is used as this is
     being used to generate variable names for threads.'''
 
-
+    # key will be pooled, persist, oneoff
     for key, files in sql_files.items():
         for idx, file in enumerate(files):
             slapper_name = key + str(idx + 1)
 
-            # This is a custom file, rename thread name to follow process easier
+            # Provide different name for custom files
             if file in custom_config[ key + '_sql']:
                 slapper_name += "_" + get_filename(file, ext=False)
 
-
-            if key == 'pooled':
-                exec(slapper_name + " = Slapper('" + file + "', 'pooled')")
-            elif key == 'oneoff':
-                exec(slapper_name + " = Slapper('" + file + "', 'oneoff')")
-            elif key == 'persist':
-                exec(slapper_name + " = Slapper('" + file + "', 'persist')")
-
-            exec(slapper_name + ".start('" + slapper_name + "')")
+            # Create dynamic slapper object by variable 'slapper_name'
+            exec(slapper_name + " = Slapper('" + file + "','" + key + \
+                 "', '" + slapper_name + "')")
             exec("background_processes.append(" + slapper_name + ")")
 
+    # Start all processing at once
+    for process in background_processes:
+        process.start()
+
+    # Wait for threads to complete before moving on in main.
     for t in background_threads:
         t.join()
 

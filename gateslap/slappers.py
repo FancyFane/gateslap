@@ -25,7 +25,7 @@ class Slapper(object):
         elif self.sql_type == "oneoff":
             self.db = QueryOneOff(mysql_config)
         elif self.sql_type == "persist":
-            self.db = QueryPersist(mysql_config, pool_config)
+            self.db = QueryPersist(mysql_config, pool_config, self.thread_name)
 
     def running():
         doc = "The running property."
@@ -86,12 +86,16 @@ class Slapper(object):
             # Close the generated progress bar
         bar.close()
 
+        # If this is a persistent connection we can close it after
+        # processing the file
+        if self.sql_type == "persist":
+            self.db.disconnect()
+
+
     def close(self):
         bar.close()
 
-    def start(self, threadName):
-        # Start a new thread
-        self.thread_name=threadName
+    def start(self):
         thread = threading.Thread(target=self.process_file,
                                   name=self.thread_name,
                                   daemon=True)

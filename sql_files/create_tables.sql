@@ -1,1 +1,3 @@
-CREATE TABLE `customer_info` (customer_id MEDIUMINT NOT NULL AUTO_INCREMENT, age SMALLINT NOT NULL, first_name VARCHAR(32), last_name VARCHAR(32), PRIMARY KEY (customer_id));
+create table product (sku varbinary(128), description varbinary(128), price bigint, primary key(sku));
+create table customer (customer_id bigint not null auto_increment, email varbinary(128), primary key(customer_id));
+create table corder (order_id bigint not null auto_increment, customer_id bigint, sku varbinary(128), price bigint, primary key(order_id));

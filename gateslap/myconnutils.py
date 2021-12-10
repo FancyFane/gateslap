@@ -6,9 +6,9 @@ import time, sys, threading
 
 class Database(object):
 
-# Using either connection type (persistent or non-persistent) we wil still
-# need these basic connection details. As such we will make a Database super
-# class to hold this info and define it once.
+    ''' Using either connection type (persistent or non-persistent) we wil still
+    need these basic connection details. As such we will make a Database super
+    class to hold this info and define it once.'''
 
 # TODO add in SSL support here
 
@@ -32,9 +32,9 @@ class Database(object):
         except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
             errnum = e.args[0]
             errmsg = e.args[1]
-            print("Error trying to run SQL:\n\n" + sql)
+            print("Error trying to run SQL:\n" + sql)
             if errnum == 1105:
-                print("\nA change has been dected to PRIMARY tablet\n")
+                print("No healthy tablets error.")
                 if self.retry == True:
                     print("Retry enabled, waiting " + str(self.retry_time) + \
                           "ms and trying SQL statment again.")
@@ -61,7 +61,6 @@ class Database(object):
                           "the " + table + " table, and rerun.")
                     if self.exit_on_error == True:
                         sys.exit(1)
-                    pass
             # Error not accounted for print out the error number and message
             else:
                 print("\nError Number: " + str(errnum) + \
@@ -108,7 +107,7 @@ class QueryOneOff(Database):
 # Docs: https://webwareforpython.github.io/DBUtils/main.html#modules
 class QueryPersist(Database):
 
-    def __init__(self, mysql_config, pool_config):
+    def __init__(self, mysql_config, pool_config, purpose=""):
         # Ensure we process the mysql_config using the super class
         super().__init__(mysql_config)
 
@@ -120,17 +119,36 @@ class QueryPersist(Database):
                                        database=self.db, charset=self.charset,
                                        threadlocal=threading.local,
                                        ping=self.ping)
+        self.purpose = purpose
+        # Establish connection upon creation
+        self.connect()
 
     # override connection, as we want persistent conns not pymysql conns
     def connect(self):
-        self.con = self.persist_db.connection()
+        self.con = self.persist_db.steady_connection()
         self.cur = self.con.cursor()
+        if self.purpose != "":
+            print("Establishing persistent connection for " + self.purpose + ".")
+
+    # override execute/fetch to only manipulate the cursor and not terminate
+    # the persistent connections
+    def execute(self, sql):
+        self.run_sql(sql)
+
+    def fetch(self, sql):
+        self.run_sql(sql)
+        result = self.cur.fetchall()
+        return result
+
+    def disconnect(self):
+        self.cur.close()
+        self.con.close()
+        print("Closing persistent connection for " + self.purpose + ".")
 
 # Using dbutils - PooledDB for pooled database connections
 # NOTE: reset, must be set to false, or rollback is auto issued to mysql
 # Docs: https://webwareforpython.github.io/DBUtils/main.html#modules
 class QueryPooled(Database):
-
     def __init__(self, mysql_config, pool_config):
         # Ensure we process the mysql_config using the super class
         super().__init__(mysql_config)
@@ -152,6 +170,10 @@ class QueryPooled(Database):
         			password=self.password,database=self.db,charset=self.charset
         		)
 
+    # The thread saftey is set to 1 for PyMySQL so each thread will need a
+    # dedicated connection:
+    # https://www.python.org/dev/peps/pep-0249/
+    # https://github.com/PyMySQL/PyMySQL/blob/main/pymysql/__init__.py#L55
     def execute(self, sql):
         with self.pool.connection() as self.con:
             with self.con.cursor() as self.cur:
