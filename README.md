@@ -16,10 +16,10 @@ OS. Aside from the python packages there is also a requirement to have
 
 
 ### Debian/Ubuntu
-There is no package avilable for `dbutils`. 
+There is no package avilable for `dbutils`. We will leave this to the setup.py
+script to install the python package. 
 ```
 sudo apt-get update; sudo apt-get install python3-pymysql python3-tqdm mysql-server
-sudo pip3 install dbutils
 ```
 
 ### Redhat Linux/Fedora
