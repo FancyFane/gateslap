@@ -1,40 +1,40 @@
 # gateslap
 Utility for generating traffic for [Vitess](https://github.com/vitessio/vitess) VTGate.
 
-There are several knobs you can turn in the slapper.ini file the purpose
+There are several knobs available in the slapper.ini file the purpose
 of this utility is to generate light VTGate traffic for testing. Synthetic
 SQL files are generated using mysqlslap utility; this is how the name 
-`gateslap` came to be. 
+`gateslap` came to be. Alternatively, you can create your own SQL files
+for gateslap to run. 
+
 
 ## Requirements
-Python can pip install the packages for you, however, if you want the
-requirements to be managed by your OS you may want to install the dependencies
-before doing the `python setup.py install` run_command. There is also a 
-requirement to have `mysqlslap` installed which comes with the
-mysql-server package.
+Python can pip install the needed packages, however, the os may also
+install some of these packages and have the dependencies managed by your
+OS. Aside from the python packages there is also a requirement to have
+`mysqlslap` installed which typically comes with the `mysql-server` package. 
+
 
 ### Debian/Ubuntu
-There are no packages available for dbutils so you will need to pip install
-that package. 
-
+There is no package avilable for `dbutils`. We will leave this to the setup.py
+script to install the python package. 
 ```
 sudo apt-get update; sudo apt-get install python3-pymysql python3-tqdm mysql-server
-sudo pip3 install dbutils
 ```
 
 ### Redhat Linux/Fedora
 You will need to enssure you have epel enabled to install these packages.
-
 ```
 sudo yum -y install epel-release
 sudo yum -y install python3-dbutils python3-PyMySQL python3-tqdm mysql-community-server
 ```
 
-## Install
-
+## Install instructions
 ```
 git clone https://github.com/FancyFane/gateslap.git
 cd gateslap
+virtual venv
+. venv/bin/activate
 sudo python3 setup.py install
 ```
 
@@ -46,23 +46,10 @@ gateslap
 gateslap /path/to/slapper.ini
 ```
 
+There are additional .ini files in the examples folder.
+
+
 ## TODO
 * Allow for SSL encryption
-* Allow for custom SQL files and tables
 * Develop test files
-* Expand sanity check when running
-
-
-## Work In Progress
-This utility is still a work in progres, if you are to install do so in a virtual environment.
-
-```
-git clone https://github.com/FancyFane/gateslap.git
-cd gateslap
-virtual venv
-. venv/bin/activate
-./reset.sh
-```
-
-The reset.sh script is a helper script to quickly clear things out and re-install the local copy
-while development work continues. 
+* Expand sanity (resorce) check when running
