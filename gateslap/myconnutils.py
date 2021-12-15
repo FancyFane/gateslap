@@ -12,7 +12,7 @@ class Database(object):
 
 # TODO add in SSL support here
 
-    def __init__(self, mysql_config):
+    def __init__(self, mysql_config, errors_config):
         self.host = mysql_config['host']
         self.user = mysql_config['user']
         self.password = mysql_config['password']
@@ -20,10 +20,15 @@ class Database(object):
         self.port = int(mysql_config['port'])
         self.charset = mysql_config['charset']
         self.autocommit = mysql_config['autocommit']
-        self.retry = bool(mysql_config['retry'])
-        self.retry_time = int(mysql_config['retry_time'])
-        self.exit_on_error = bool(mysql_config['exit_on_error'])
-        self.drop_table = bool(mysql_config['drop_table'])
+        self.retry_time = int(errors_config['retry_time'])
+        self.drop_table = bool(errors_config['drop_table'])
+
+        try:
+            self.retry_count = int(errors_config['retry_count'])
+            if self.retry_count < 1:
+                self.retry_count = 0
+        except:
+            self.retry_count = 0
 
 
     def run_sql(self, sql):
@@ -32,39 +37,46 @@ class Database(object):
         except (pymysql.err.OperationalError, pymysql.err.InternalError) as e:
             errnum = e.args[0]
             errmsg = e.args[1]
-            print("Error trying to run SQL:\n" + sql)
+            print("\nError Number: " + str(errnum) + \
+                  "\nError Message: " + errmsg + \
+                  "\nSQL Statment: " + sql)
             if errnum == 1105:
-                print("No healthy tablets error.")
-                if self.retry == True:
-                    print("Retry enabled, waiting " + str(self.retry_time) + \
-                          "ms and trying SQL statment again.")
-                    time.sleep(self.retry_time/1000)
-                    self.cur.execute(sql)
-                else:
-                    print("Retry disabled, displaying the relevant " + \
-                          "error msg and exiting:" + \
-                          "\nError Number: " + str(errnum) + \
-                          "\nError Message: " + errmsg)
-                    if self.exit_on_error == True:
-                        sys.exit(1)
-                    pass
+                # No primary found, likely a reparent event
+                self.retry_sql(sql)
             elif errnum == 1050:
+                # Trying to create a table that is already created
+                # if drop_table is set then drop and recreate the table
                 table = ""
                 if self.drop_table:
                     table=find_table(sql)
-                    print("Duplicate table " + table + " found, dropping " + \
-                          "per [mysql] configuration.")
                     self.cur.execute("DROP TABLE " + table + ";")
                     self.cur.execute(sql)
                 else:
+                    # drop_table not set, manual intervention needed; bail
                     print("Not configured to drop tables. Manually drop " + \
                           "the " + table + " table, and rerun.")
-                    if self.exit_on_error == True:
-                        sys.exit(1)
-            # Error not accounted for print out the error number and message
+                    sys.exit(1)
             else:
-                print("\nError Number: " + str(errnum) + \
-                      "\nError Message: " + errmsg)
+                self.retry_sql(sql)
+
+
+    def retry_sql(self, sql):
+        if self.retry_count == 0:
+            sys.exit(0)
+        for retry_attempt in range(1, self.retry_count+1):
+            print("Retry attempt " + str(retry_attempt) + " out of " + \
+                  str(self.retry_count) + " sleeping for " + \
+                  str(self.retry_time) + "ms and trying again.")
+            time.sleep(self.retry_time/1000)
+            try:
+                self.cur.execute(sql)
+            except Exception as e:
+                if retry_attempt == self.retry_count:
+                    print("Unable to resolve error, shutting down." + str(e))
+                    sys.exit(0)
+            else:
+                break
+
 
     def fetch(self, sql):
         self.connect()
@@ -97,9 +109,9 @@ class Database(object):
 # Creating easy human readable object name to use in code, this is the same
 # as using the Database Object.
 class QueryOneOff(Database):
-    def __init__(self, mysql_config):
+    def __init__(self, mysql_config, errors_config):
         # Ensure we process the mysql_config using the super class
-        super().__init__(mysql_config)
+        super().__init__(mysql_config, errors_config)
 
 
 
@@ -107,9 +119,9 @@ class QueryOneOff(Database):
 # Docs: https://webwareforpython.github.io/DBUtils/main.html#modules
 class QueryPersist(Database):
 
-    def __init__(self, mysql_config, pool_config, purpose=""):
+    def __init__(self, mysql_config, pool_config, errors_config):
         # Ensure we process the mysql_config using the super class
-        super().__init__(mysql_config)
+        super().__init__(mysql_config, errors_config)
 
         # Process additional attributes for the Connection Pool only need ping
         self.ping =  int(pool_config['ping'])
@@ -119,7 +131,6 @@ class QueryPersist(Database):
                                        database=self.db, charset=self.charset,
                                        threadlocal=threading.local,
                                        ping=self.ping)
-        self.purpose = purpose
         # Establish connection upon creation
         self.connect()
 
@@ -127,8 +138,7 @@ class QueryPersist(Database):
     def connect(self):
         self.con = self.persist_db.steady_connection()
         self.cur = self.con.cursor()
-        if self.purpose != "":
-            print("Establishing persistent connection for " + self.purpose + ".")
+
 
     # override execute/fetch to only manipulate the cursor and not terminate
     # the persistent connections
@@ -143,15 +153,14 @@ class QueryPersist(Database):
     def disconnect(self):
         self.cur.close()
         self.con.close()
-        print("Closing persistent connection for " + self.purpose + ".")
 
 # Using dbutils - PooledDB for pooled database connections
 # NOTE: reset, must be set to false, or rollback is auto issued to mysql
 # Docs: https://webwareforpython.github.io/DBUtils/main.html#modules
 class QueryPooled(Database):
-    def __init__(self, mysql_config, pool_config):
+    def __init__(self, mysql_config, pool_config, errors_config):
         # Ensure we process the mysql_config using the super class
-        super().__init__(mysql_config)
+        super().__init__(mysql_config, errors_config)
 
         # Process additional attributes for the Connection Pool
         self.maxconnections = int(pool_config['maxconnections'])
@@ -161,17 +170,18 @@ class QueryPooled(Database):
         self.blocking =  pool_config['blocking']
         self.maxusage =  pool_config['maxusage']
         self.ping =  int(pool_config['ping'])
+        # reset=False must be set or SQL rollbacks will be issued
         self.pool = PooledDB(
         			creator=pymysql, maxconnections=self.maxconnections,
         			mincached=self.mincached, maxcached=self.maxcached,
         			maxshared=self.maxshared, blocking=self.blocking,
-        			maxusage=self.maxshared, ping=self.ping, reset=False,
-        			host=self.host, port=self.port, user=self.user,
+        			maxusage=self.maxshared, ping=self.ping, read_timeout=10,
+        			host=self.host, port=self.port, user=self.user, reset=False,
         			password=self.password,database=self.db,charset=self.charset
         		)
 
     # The thread saftey is set to 1 for PyMySQL so each thread will need a
-    # dedicated connection:
+    # dedicated connection :
     # https://www.python.org/dev/peps/pep-0249/
     # https://github.com/PyMySQL/PyMySQL/blob/main/pymysql/__init__.py#L55
     def execute(self, sql):

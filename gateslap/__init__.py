@@ -20,13 +20,14 @@ mysql_config = ConfigFile(CONFIGFILE)["mysql"]
 pool_config = ConfigFile(CONFIGFILE)["pool"]
 gateslap_config = ConfigFile(CONFIGFILE)["gateslap"]
 mysqlslap_config = ConfigFile(CONFIGFILE)["mysqlslap"]
-custom_config = ConfigFile(CONFIGFILE)["custom"]
+custom_sql_config = ConfigFile(CONFIGFILE)["custom"]
+errors_config = ConfigFile(CONFIGFILE)["errors"]
 
 # Due to the nature of pooled connections we must define
 # our pool in the main package
 
 try:
-    db_pool=QueryPooled(mysql_config, pool_config)
+    db_pool=QueryPooled(mysql_config, pool_config, errors_config)
 except pymysql.err.OperationalError as e:
     errnum = e.args[0]
     if errnum == 2003:

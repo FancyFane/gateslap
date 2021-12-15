@@ -22,9 +22,9 @@ class Slapper(object):
         if self.sql_type == "pooled":
             self.db = db_pool
         elif self.sql_type == "oneoff":
-            self.db = QueryOneOff(mysql_config)
+            self.db = QueryOneOff(mysql_config, errors_config)
         elif self.sql_type == "persist":
-            self.db = QueryPersist(mysql_config, pool_config, self.thread_name)
+            self.db = QueryPersist(mysql_config, pool_config, errors_config)
 
     def running():
         doc = "The running property."
@@ -73,7 +73,12 @@ class Slapper(object):
 
                 # Execute the SQL statment
                 if ";" in sql:
-                    self.db.execute(sql)
+                    try:
+                        self.db.execute(sql)
+                    # Likely lost connection
+                    except Exception as e:
+                        print(str(e))
+                        sys.exit(1)
 
                 # Increment the bar by a value of 1
                 bar.update(1)
