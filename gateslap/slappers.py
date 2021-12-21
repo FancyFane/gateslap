@@ -19,6 +19,7 @@ class Slapper(object):
         self.db_conn()
 
     def db_conn(self):
+        # db_pool is defined and imported from __init__.py
         if self.sql_type == "pooled":
             self.db = db_pool
         elif self.sql_type == "oneoff":
@@ -61,8 +62,6 @@ class Slapper(object):
     def process_file(self):
         # Create a new progress bar
         bar = tqdm(total=self.length, desc=self.thread_name)
-
-        # Open the given SQL file
         with open(self.sql_file) as file:
             for sql in file:
 
@@ -71,14 +70,10 @@ class Slapper(object):
                     bar.close()
                     break
 
-                # Execute the SQL statment
+                # Execute the SQL statment; check for ";"
+                # TODO: add better SYNTAX checking
                 if ";" in sql:
-                    try:
-                        self.db.execute(sql)
-                    # Likely lost connection
-                    except Exception as e:
-                        print(str(e))
-                        sys.exit(1)
+                    self.db.execute(sql)
 
                 # Increment the bar by a value of 1
                 bar.update(1)
@@ -87,17 +82,10 @@ class Slapper(object):
                 if self.timer_on:
                     self.sleep_generator()
 
-            # Close the generated progress bar
+        # EOF close bar and persistent connections.
         bar.close()
-
-        # If this is a persistent connection we can close it after
-        # processing the file
         if self.sql_type == "persist":
             self.db.disconnect()
-
-
-    def close(self):
-        bar.close()
 
     def start(self):
         thread = threading.Thread(target=self.process_file,
