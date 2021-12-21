@@ -6,7 +6,8 @@ from gateslap import *
 from  gateslap.helpers import *
 import sys, signal, time, os, psutil
 
-# # TODO:   Add in SSL support for MySQL connection
+# # TODO:   Add better SQL syntax checking
+#           Add in SSL support for MySQL connection
 #           Expand on sanity check CPU/Memory limits
 #           Create Unit Test files
 

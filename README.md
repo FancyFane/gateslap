@@ -3,21 +3,21 @@ Utility for generating traffic for [Vitess](https://github.com/vitessio/vitess) 
 
 There are several knobs available in the slapper.ini file the purpose
 of this utility is to generate light VTGate traffic for testing. Synthetic
-SQL files are generated using mysqlslap utility; this is how the name 
+SQL files are generated using mysqlslap utility; this is how the name
 `gateslap` came to be. Alternatively, you can create your own SQL files
-for gateslap to run. 
+for gateslap to run.
 
 
 ## Requirements
 Python can pip install the needed packages, however, the os may also
 install some of these packages and have the dependencies managed by your
 OS. Aside from the python packages there is also a requirement to have
-`mysqlslap` installed which typically comes with the `mysql-server` package. 
+`mysqlslap` installed which typically comes with the `mysql-server` package.
 
 
 ### Debian/Ubuntu
 There is no package avilable for `dbutils`. We will leave this to the setup.py
-script to install the python package. 
+script to install the python package.
 ```
 sudo apt-get update; sudo apt-get install python3-pymysql python3-tqdm mysql-server
 ```
@@ -50,6 +50,7 @@ There are additional .ini files in the examples folder.
 
 
 ## TODO
+* Better SQL syntax checking
 * Allow for SSL encryption
 * Develop test files
 * Expand sanity (resorce) check when running
